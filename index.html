@@ -2589,105 +2589,145 @@
 </html>
 
 <script>
-// Firebase 实时同步 - 简化版
+// Firebase 实时同步 - 完整版（同步待办+记账+图片）
 (function() {
     var DB_URL = 'https://chuanxi-board-default-rtdb.asia-southeast1.firebasedatabase.app';
-    var SYNC_KEY = 'cx_sync_v1';
-    var RESTORED_KEY = 'cx_restored_session';
-    var localKey = 'tripTodos';
+    var SYNC_KEY = 'cx_all_sync';
+    var RESTORED_KEY = 'cx_restored';
+    var localTodos = 'tripTodos';
+    var localExpenses = 'tripExpenses';
     var versionKey = 'tripTodosVersion';
     var STORAGE_VERSION = 3;
 
+    // 保存所有数据到 Firebase
+    function saveAllToFirebase() {
+        var todos = localStorage.getItem(localTodos) || '[]';
+        var expenses = localStorage.getItem(localExpenses) || '[]';
+        var data = {
+            todos: JSON.parse(todos),
+            expenses: JSON.parse(expenses),
+            timestamp: Date.now()
+        };
+        var xhr = new XMLHttpRequest();
+        xhr.open('PUT', DB_URL + '/alldata.json', true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.send(JSON.stringify(data));
+    }
+
     // 从 Firebase 恢复数据
     function restoreFromFirebase() {
-        // 检查是否已经恢复过（sessionStorage 在页面关闭后清除）
-        if (sessionStorage.getItem(RESTORED_KEY) === 'true') {
-            return; // 已经恢复过，跳过
-        }
+        if (sessionStorage.getItem(RESTORED_KEY) === 'true') return;
 
         var xhr = new XMLHttpRequest();
-        xhr.open('GET', DB_URL + '/todos.json', true);
+        xhr.open('GET', DB_URL + '/alldata.json', true);
         xhr.onload = function() {
             if (xhr.status === 200) {
                 try {
                     var data = JSON.parse(xhr.responseText);
-                    if (data && data.todos && data.todos.length > 0) {
-                        // 标记已恢复
+                    if (data && (data.todos || data.expenses)) {
                         sessionStorage.setItem(RESTORED_KEY, 'true');
-                        // 用 Firebase 数据覆盖本地
-                        localStorage.setItem(localKey, JSON.stringify(data.todos));
-                        localStorage.setItem(versionKey, STORAGE_VERSION);
+                        if (data.todos) {
+                            localStorage.setItem(localTodos, JSON.stringify(data.todos));
+                            localStorage.setItem(versionKey, STORAGE_VERSION);
+                        }
+                        if (data.expenses) {
+                            localStorage.setItem(localExpenses, JSON.stringify(data.expenses));
+                        }
                         localStorage.setItem(SYNC_KEY, 'synced');
-                        // 重新加载页面以应用数据
                         location.reload();
                     }
-                } catch(e) {
-                    console.log('Parse error:', e);
-                }
+                } catch(e) { console.log('Parse error:', e); }
             }
         };
-        xhr.onerror = function() {
-            console.log('Firebase 连接失败');
-        };
+        xhr.onerror = function() { console.log('Firebase 连接失败'); };
         xhr.send();
     }
 
-    // 上传本地数据到 Firebase
-    function uploadToFirebase() {
-        var todos = JSON.parse(localStorage.getItem(localKey) || '[]');
-        var xhr = new XMLHttpRequest();
-        xhr.open('PUT', DB_URL + '/todos.json', true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        var payload = {todos: todos, timestamp: Date.now()};
-        xhr.send(JSON.stringify(payload));
-    }
-    
-    // 覆盖原始的 addTodo
-    var _addTodo = window.addTodo;
-    window.addTodo = function(text, criteria, cat, person) {
-        _addTodo.apply(this, arguments);
-        setTimeout(uploadToFirebase, 100);
-    };
-    
-    // 覆盖原始的 deleteTodo
-    var _deleteTodo = window.deleteTodo;
-    window.deleteTodo = function(index) {
-        _deleteTodo.apply(this, arguments);
-        setTimeout(uploadToFirebase, 100);
-    };
-    
-    // 覆盖原始的 toggleTodo
-    var _toggleTodo = window.toggleTodo;
-    window.toggleTodo = function(index) {
-        _toggleTodo.apply(this, arguments);
-        setTimeout(uploadToFirebase, 100);
-    };
-    
-    // 页面卸载时同步
-    window.addEventListener('beforeunload', function() {
-        uploadToFirebase();
-    });
-
-    // 轮询检查更新（用于多用户同步）
+    // 轮询检查更新
     function pollForUpdates() {
         var xhr = new XMLHttpRequest();
-        xhr.open('GET', DB_URL + '/todos.json', true);
+        xhr.open('GET', DB_URL + '/alldata.json', true);
         xhr.onload = function() {
             if (xhr.status === 200) {
                 try {
-                    var data = JSON.parse(xhr.responseText);
-                    if (data && data.todos) {
-                        var localTodos = JSON.parse(localStorage.getItem(localKey) || '[]');
-                        // 比较数据是否有变化
-                        if (JSON.stringify(data.todos) !== JSON.stringify(localTodos)) {
-                            localStorage.setItem(localKey, JSON.stringify(data.todos));
-                            location.reload(); // 数据变化时刷新页面
-                        }
+                    var cloud = JSON.parse(xhr.responseText);
+                    if (!cloud || !cloud.timestamp) return;
+
+                    var localTodosStr = localStorage.getItem(localTodos) || '[]';
+                    var localExpensesStr = localStorage.getItem(localExpenses) || '[]';
+                    var localTodos = JSON.parse(localTodosStr);
+                    var localExpenses = JSON.parse(localExpensesStr);
+
+                    var cloudTodosStr = JSON.stringify(cloud.todos || []);
+                    var cloudExpensesStr = JSON.stringify(cloud.expenses || []);
+
+                    // 如果云端数据与本地不同，则更新
+                    if (localTodosStr !== cloudTodosStr || localExpensesStr !== cloudExpensesStr) {
+                        if (cloud.todos) localStorage.setItem(localTodos, JSON.stringify(cloud.todos));
+                        if (cloud.expenses) localStorage.setItem(localExpenses, JSON.stringify(cloud.expenses));
+                        location.reload();
                     }
                 } catch(e) {}
             }
         };
         xhr.send();
+    }
+
+    // 覆盖待办函数
+    var _addTodo = window.addTodo;
+    window.addTodo = function() {
+        _addTodo.apply(this, arguments);
+        setTimeout(saveAllToFirebase, 100);
+    };
+    var _deleteTodo = window.deleteTodo;
+    window.deleteTodo = function() {
+        _deleteTodo.apply(this, arguments);
+        setTimeout(saveAllToFirebase, 100);
+    };
+    var _toggleTodo = window.toggleTodo;
+    window.toggleTodo = function() {
+        _toggleTodo.apply(this, arguments);
+        setTimeout(saveAllToFirebase, 100);
+    };
+
+    // 覆盖记账函数
+    var _addExpense = window.addExpense;
+    window.addExpense = function() {
+        if (_addExpense) _addExpense.apply(this, arguments);
+        setTimeout(saveAllToFirebase, 100);
+    };
+    var _deleteExpense = window.deleteExpense;
+    window.deleteExpense = function() {
+        if (_deleteExpense) _deleteExpense.apply(this, arguments);
+        setTimeout(saveAllToFirebase, 100);
+    };
+
+    // 监听所有 localStorage 变化
+    window.addEventListener('storage', function(e) {
+        if (e.key === localTodos || e.key === localExpenses) {
+            saveAllToFirebase();
+        }
+    });
+
+    // 页面卸载时同步
+    window.addEventListener('beforeunload', function() {
+        saveAllToFirebase();
+    });
+
+    // 启动
+    function start() {
+        restoreFromFirebase();
+        setInterval(pollForUpdates, 1000); // 每秒检查
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', start);
+    } else {
+        start();
+    }
+})();
+</script>
+
     }
 
     // 启动同步
