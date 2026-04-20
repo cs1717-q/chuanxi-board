@@ -2593,46 +2593,39 @@
 (function() {
     var DB_URL = 'https://chuanxi-board-default-rtdb.asia-southeast1.firebasedatabase.app';
     var SYNC_KEY = 'cx_sync_v1';
-    var RESTORED_KEY = 'cx_restored_v1';
     var localKey = 'tripTodos';
     var versionKey = 'tripTodosVersion';
     var STORAGE_VERSION = 3;
+    var lastTimestamp = 0;
 
-    // 初始化
-    function init() {
-        // 先从 Firebase 读取
+    // 从 Firebase 恢复数据
+    function restoreFromFirebase() {
         var xhr = new XMLHttpRequest();
         xhr.open('GET', DB_URL + '/todos.json', true);
         xhr.onload = function() {
             if (xhr.status === 200) {
-                var data = null;
-                try { data = JSON.parse(xhr.responseText); } catch(e) {}
-                if (data && data.todos && data.todos.length > 0 && localStorage.getItem(RESTORED_KEY) !== 'true') {
-                    // 标记已恢复，防止重复
-                    localStorage.setItem(RESTORED_KEY, 'true');
-                    // 用 Firebase 数据覆盖本地
-                    localStorage.setItem(localKey, JSON.stringify(data.todos));
-                    localStorage.setItem(versionKey, STORAGE_VERSION);
-                    // 标记已同步
-                    localStorage.setItem(SYNC_KEY, 'synced');
-                    // 重新加载以应用数据
-                    location.reload();
-                } else {
-                    // 没有 Firebase 数据，检查本地是否有同步标记
-                    var synced = localStorage.getItem(SYNC_KEY);
-                    if (synced) {
-                        // 已有同步标记，说明本地有数据，上传到 Firebase
-                        uploadToFirebase();
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    if (data && data.todos && data.todos.length > 0) {
+                        // 比较时间戳，只在数据更新时恢复
+                        if (data.timestamp && data.timestamp > lastTimestamp) {
+                            lastTimestamp = data.timestamp;
+                            // 用 Firebase 数据覆盖本地
+                            localStorage.setItem(localKey, JSON.stringify(data.todos));
+                            localStorage.setItem(versionKey, STORAGE_VERSION);
+                            localStorage.setItem(SYNC_KEY, 'synced');
+                            // 重新加载页面以应用数据
+                            location.reload();
+                        }
                     }
+                } catch(e) {
+                    console.log('Parse error:', e);
                 }
             }
         };
-        xhr.onerror = function() {
-            console.log('Firebase 连接失败，使用本地数据');
-        };
         xhr.send();
     }
-    
+
     // 上传本地数据到 Firebase
     function uploadToFirebase() {
         var todos = JSON.parse(localStorage.getItem(localKey) || '[]');
@@ -2668,12 +2661,20 @@
     window.addEventListener('beforeunload', function() {
         uploadToFirebase();
     });
-    
+
+    // 启动同步
+    function startSync() {
+        // 每次页面加载时检查 Firebase
+        restoreFromFirebase();
+        // 每10秒检查一次更新
+        setInterval(restoreFromFirebase, 10000);
+    }
+
     // 启动
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+        document.addEventListener('DOMContentLoaded', startSync);
     } else {
-        init();
+        startSync();
     }
 })();
 </script>
