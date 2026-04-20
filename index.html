@@ -2656,6 +2656,7 @@
                 try {
                     var data = JSON.parse(xhr.responseText);
                     if (data && data.todos) {
+                        lastTimestamp = data.timestamp || 0;
                         callback(data.todos);
                     }
                 } catch(e) {
@@ -2740,30 +2741,104 @@
     // 初始化
     function init() {
         initOnlineDisplay();
-        
+
         // 加载云端数据
         loadFromFirebase(function(cloudTodos) {
             if (cloudTodos && cloudTodos.length > 0) {
                 // 有云端数据，恢复到本地
                 localStorage.setItem('tripTodos', JSON.stringify(cloudTodos));
-                if (typeof renderTodos === 'function') {
-                    renderTodos();
+                // 覆盖原始的 renderTodos
+                window.renderTodos = function() {
+                    // 从 localStorage 读取最新数据
+                    try {
+                        var STORAGE_VERSION = 1;
+                        var savedVersion = parseInt(localStorage.getItem('tripTodosVersion') || '0');
+                        var defaultTodos = [];
+                        var todos = savedVersion < STORAGE_VERSION ? defaultTodos : JSON.parse(localStorage.getItem('tripTodos') || '[]');
+
+                        var currentCat = 'all';
+                        var currentPerson = 'all';
+                        var showCompleted = false;
+
+                        const pendingTodos = todos.filter(function(t) { return !t.done; });
+                        const doneTodos = todos.filter(function(t) { return t.done; });
+                        var filtered = showCompleted
+                            ? (currentCat === 'all' && currentPerson === 'all'
+                                ? todos
+                                : todos.filter(function(t) { return (currentCat === 'all' || t.cat === currentCat) && (currentPerson === 'all' || t.person === currentPerson); }))
+                            : pendingTodos.filter(function(t) { return (currentCat === 'all' || t.cat === currentCat) && (currentPerson === 'all' || t.person === currentPerson); });
+
+                        var list = document.getElementById('todoList');
+                        if (!list) return;
+
+                        if (filtered.length === 0) {
+                            list.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-light); font-size: 0.85rem;">' + (showCompleted ? '暂无已完成事项' : '暂无待办事项') + '</div>';
+                        } else {
+                            var catIcons = { '出行': '🚗', '住宿': '🏨', '餐饮': '🍽️', '药品': '💊', '行李': '🎒' };
+                            var catColors = { '出行': '#3498DB', '住宿': '#9B59B6', '餐饮': '#E74C3C', '药品': '#E91E63', '行李': '#FF9800' };
+                            var personColors = { '邱明瑶': '#E74C3C', '黎青秀': '#3498DB', '何晓婷': '#2ECC71', '郑荐中': '#F39C12' };
+
+                            list.innerHTML = filtered.map(function(t) {
+                                var realIndex = todos.indexOf(t);
+                                return '<div data-todo-index="' + realIndex + '" style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: ' + (t.done ? 'rgba(46,125,50,0.06)' : 'white') + '; border-radius: 10px; border: 1px solid ' + (t.done ? 'rgba(46,125,50,0.15)' : 'rgba(91,140,90,0.1)') + '; transition: all 0.3s;">' +
+                                    '<div style="flex: 1;">' +
+                                    '<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">' +
+                                    '<span style="background: ' + (catColors[t.cat] || '#666') + '; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem;">' + (catIcons[t.cat] || '📋') + ' ' + (t.cat || '其他') + '</span>' +
+                                    '<span style="background: ' + (personColors[t.person] || '#666') + '; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem;">' + (t.person || '未分配') + '</span>' +
+                                    '</div>' +
+                                    '<div class="todo-text" contenteditable="true" style="outline: none; padding: 4px 0; font-size: 0.92rem; ' + (t.done ? 'text-decoration: line-through; color: var(--text-light);' : '') + '">' + t.text + '</div>' +
+                                    '<div style="font-size: 0.78rem; color: var(--text-light); margin-top: 4px;">验收标准：<span class="todo-criteria" contenteditable="true">' + (t.criteria || '') + '</span></div>' +
+                                    '</div>' +
+                                    '<div style="display: flex; flex-direction: column; gap: 4px; align-items: center; min-width: 60px;">' +
+                                    '<div onclick="toggleTodo(' + realIndex + ')" style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid ' + (t.done ? 'var(--grass)' : '#ddd') + '; background: ' + (t.done ? 'var(--grass)' : 'transparent') + '; cursor: pointer; display: flex; align-items: center; justify-content: center; color: white; font-size: 14px;">' + (t.done ? '✓' : '') + '</div>' +
+                                    '<button onclick="deleteTodo(' + realIndex + ')" style="background: none; border: none; color: #e74c3c; cursor: pointer; font-size: 0.75rem; padding: 4px;" title="删除">✕</button>' +
+                                    '</div></div>';
+                            }).join('');
+
+                            // 添加编辑监听
+                            list.querySelectorAll('.todo-text, .todo-criteria').forEach(function(el) {
+                                el.addEventListener('blur', function() {
+                                    var index = parseInt(this.closest('[data-todo-index]').getAttribute('data-todo-index'));
+                                    var newText = this.closest('.todo-text') ? this.innerText : null;
+                                    var newCriteria = this.closest('.todo-criteria') ? this.innerText : null;
+                                    if (newText !== null) {
+                                        todos[index].text = newText;
+                                    }
+                                    if (newCriteria !== null) {
+                                        todos[index].criteria = newCriteria;
+                                    }
+                                    localStorage.setItem('tripTodos', JSON.stringify(todos));
+                                    saveToFirebase(todos);
+                                });
+                            });
+                        }
+
+                        var doneCount = doneTodos.length;
+                        var totalCount = todos.length;
+                        var progressEl = document.getElementById('todoProgress');
+                        if (progressEl) progressEl.textContent = doneCount + '/' + totalCount;
+                    } catch(e) { console.error('Render error:', e); }
+                };
+
+                // 调用覆盖后的 renderTodos
+                if (typeof window.renderTodos === 'function') {
+                    window.renderTodos();
                 }
                 showToast('☁ 已从云端恢复数据');
             }
         });
-        
+
         // 发送心跳
         sendHeartbeat();
         setInterval(sendHeartbeat, 5000);
-        
+
         // 更新在线人数
         updateOnlineCount();
         setInterval(updateOnlineCount, 8000);
-        
-        // 轮询监听变化
-        setInterval(pollFirebase, 3000);
-        
+
+        // 轮询监听变化（缩短到1秒）
+        setInterval(pollFirebase, 1000);
+
         // 拦截 addTodo 函数
         var origAddTodo = window.addTodo;
         window.addTodo = function() {
@@ -2771,7 +2846,7 @@
             var todos = JSON.parse(localStorage.getItem('tripTodos') || '[]');
             saveToFirebase(todos);
         };
-        
+
         // 拦截 deleteTodo 函数
         var origDeleteTodo = window.deleteTodo;
         window.deleteTodo = function() {
@@ -2779,23 +2854,23 @@
             var todos = JSON.parse(localStorage.getItem('tripTodos') || '[]');
             saveToFirebase(todos);
         };
-        
+
         // 提供全局更新函数
         window.updateTodosFromCloud = function(cloudTodos) {
             localStorage.setItem('tripTodos', JSON.stringify(cloudTodos));
-            if (typeof renderTodos === 'function') {
-                renderTodos();
+            if (typeof window.renderTodos === 'function') {
+                window.renderTodos();
             }
             showToast('☁ 内容已更新');
         };
-        
+
         // 页面离开时清除在线状态
         window.addEventListener('beforeunload', function() {
             var xhr = new XMLHttpRequest();
             xhr.open('DELETE', DB_URL + '/' + onlineKey + '.json', true);
             xhr.send();
         });
-        
+
         showToast('🎉 Firebase 实时同步已开启！');
     }
     
