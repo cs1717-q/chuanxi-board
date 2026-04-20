@@ -2593,13 +2593,18 @@
 (function() {
     var DB_URL = 'https://chuanxi-board-default-rtdb.asia-southeast1.firebasedatabase.app';
     var SYNC_KEY = 'cx_sync_v1';
+    var RESTORED_KEY = 'cx_restored_session';
     var localKey = 'tripTodos';
     var versionKey = 'tripTodosVersion';
     var STORAGE_VERSION = 3;
-    var lastTimestamp = 0;
 
     // 从 Firebase 恢复数据
     function restoreFromFirebase() {
+        // 检查是否已经恢复过（sessionStorage 在页面关闭后清除）
+        if (sessionStorage.getItem(RESTORED_KEY) === 'true') {
+            return; // 已经恢复过，跳过
+        }
+
         var xhr = new XMLHttpRequest();
         xhr.open('GET', DB_URL + '/todos.json', true);
         xhr.onload = function() {
@@ -2607,21 +2612,22 @@
                 try {
                     var data = JSON.parse(xhr.responseText);
                     if (data && data.todos && data.todos.length > 0) {
-                        // 比较时间戳，只在数据更新时恢复
-                        if (data.timestamp && data.timestamp > lastTimestamp) {
-                            lastTimestamp = data.timestamp;
-                            // 用 Firebase 数据覆盖本地
-                            localStorage.setItem(localKey, JSON.stringify(data.todos));
-                            localStorage.setItem(versionKey, STORAGE_VERSION);
-                            localStorage.setItem(SYNC_KEY, 'synced');
-                            // 重新加载页面以应用数据
-                            location.reload();
-                        }
+                        // 标记已恢复
+                        sessionStorage.setItem(RESTORED_KEY, 'true');
+                        // 用 Firebase 数据覆盖本地
+                        localStorage.setItem(localKey, JSON.stringify(data.todos));
+                        localStorage.setItem(versionKey, STORAGE_VERSION);
+                        localStorage.setItem(SYNC_KEY, 'synced');
+                        // 重新加载页面以应用数据
+                        location.reload();
                     }
                 } catch(e) {
                     console.log('Parse error:', e);
                 }
             }
+        };
+        xhr.onerror = function() {
+            console.log('Firebase 连接失败');
         };
         xhr.send();
     }
@@ -2662,12 +2668,34 @@
         uploadToFirebase();
     });
 
+    // 轮询检查更新（用于多用户同步）
+    function pollForUpdates() {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', DB_URL + '/todos.json', true);
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    if (data && data.todos) {
+                        var localTodos = JSON.parse(localStorage.getItem(localKey) || '[]');
+                        // 比较数据是否有变化
+                        if (JSON.stringify(data.todos) !== JSON.stringify(localTodos)) {
+                            localStorage.setItem(localKey, JSON.stringify(data.todos));
+                            location.reload(); // 数据变化时刷新页面
+                        }
+                    }
+                } catch(e) {}
+            }
+        };
+        xhr.send();
+    }
+
     // 启动同步
     function startSync() {
-        // 每次页面加载时检查 Firebase
+        // 首次加载时从 Firebase 恢复
         restoreFromFirebase();
-        // 每10秒检查一次更新
-        setInterval(restoreFromFirebase, 10000);
+        // 每10秒轮询检查更新
+        setInterval(pollForUpdates, 10000);
     }
 
     // 启动
