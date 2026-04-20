@@ -2593,10 +2593,11 @@
 (function() {
     var DB_URL = 'https://chuanxi-board-default-rtdb.asia-southeast1.firebasedatabase.app';
     var SYNC_KEY = 'cx_sync_v1';
+    var RESTORED_KEY = 'cx_restored_v1';
     var localKey = 'tripTodos';
     var versionKey = 'tripTodosVersion';
     var STORAGE_VERSION = 3;
-    
+
     // 初始化
     function init() {
         // 先从 Firebase 读取
@@ -2606,13 +2607,16 @@
             if (xhr.status === 200) {
                 var data = null;
                 try { data = JSON.parse(xhr.responseText); } catch(e) {}
-                if (data && data.todos && data.todos.length > 0) {
+                if (data && data.todos && data.todos.length > 0 && localStorage.getItem(RESTORED_KEY) !== 'true') {
+                    // 标记已恢复，防止重复
+                    localStorage.setItem(RESTORED_KEY, 'true');
                     // 用 Firebase 数据覆盖本地
                     localStorage.setItem(localKey, JSON.stringify(data.todos));
                     localStorage.setItem(versionKey, STORAGE_VERSION);
                     // 标记已同步
                     localStorage.setItem(SYNC_KEY, 'synced');
-                    location.reload(); // 重新加载以应用数据
+                    // 重新加载以应用数据
+                    location.reload();
                 } else {
                     // 没有 Firebase 数据，检查本地是否有同步标记
                     var synced = localStorage.getItem(SYNC_KEY);
