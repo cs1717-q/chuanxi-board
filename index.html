@@ -2694,8 +2694,8 @@
     function startSync() {
         // 首次加载时从 Firebase 恢复
         restoreFromFirebase();
-        // 每10秒轮询检查更新
-        setInterval(pollForUpdates, 10000);
+        // 每1秒轮询检查更新（实时同步）
+        setInterval(pollForUpdates, 1000);
     }
 
     // 启动
