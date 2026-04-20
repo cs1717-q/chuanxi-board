@@ -2599,13 +2599,27 @@
     var versionKey = 'tripTodosVersion';
     var STORAGE_VERSION = 3;
 
+    // 获取所有图片数据
+    function getAllImages() {
+        var images = {};
+        for (var i = 0; i < localStorage.length; i++) {
+            var key = localStorage.key(i);
+            if (key && (key.endsWith('_img') || key.endsWith('_image'))) {
+                images[key] = localStorage.getItem(key);
+            }
+        }
+        return images;
+    }
+
     // 保存所有数据到 Firebase
     function saveAllToFirebase() {
         var todos = localStorage.getItem(localTodos) || '[]';
         var expenses = localStorage.getItem(localExpenses) || '[]';
+        var images = getAllImages();
         var data = {
             todos: JSON.parse(todos),
             expenses: JSON.parse(expenses),
+            images: images,
             timestamp: Date.now()
         };
         var xhr = new XMLHttpRequest();
@@ -2624,7 +2638,7 @@
             if (xhr.status === 200) {
                 try {
                     var data = JSON.parse(xhr.responseText);
-                    if (data && (data.todos || data.expenses)) {
+                    if (data && (data.todos || data.expenses || data.images)) {
                         sessionStorage.setItem(RESTORED_KEY, 'true');
                         if (data.todos) {
                             localStorage.setItem(localTodos, JSON.stringify(data.todos));
@@ -2632,6 +2646,11 @@
                         }
                         if (data.expenses) {
                             localStorage.setItem(localExpenses, JSON.stringify(data.expenses));
+                        }
+                        if (data.images) {
+                            for (var key in data.images) {
+                                localStorage.setItem(key, data.images[key]);
+                            }
                         }
                         localStorage.setItem(SYNC_KEY, 'synced');
                         location.reload();
@@ -2655,16 +2674,30 @@
 
                     var localTodosStr = localStorage.getItem(localTodos) || '[]';
                     var localExpensesStr = localStorage.getItem(localExpenses) || '[]';
-                    var localTodos = JSON.parse(localTodosStr);
-                    var localExpenses = JSON.parse(localExpensesStr);
-
                     var cloudTodosStr = JSON.stringify(cloud.todos || []);
                     var cloudExpensesStr = JSON.stringify(cloud.expenses || []);
 
+                    // 检查图片是否有变化
+                    var localImages = getAllImages();
+                    var imagesChanged = false;
+                    if (cloud.images) {
+                        for (var key in cloud.images) {
+                            if (localImages[key] !== cloud.images[key]) {
+                                imagesChanged = true;
+                                break;
+                            }
+                        }
+                    }
+
                     // 如果云端数据与本地不同，则更新
-                    if (localTodosStr !== cloudTodosStr || localExpensesStr !== cloudExpensesStr) {
+                    if (localTodosStr !== cloudTodosStr || localExpensesStr !== cloudExpensesStr || imagesChanged) {
                         if (cloud.todos) localStorage.setItem(localTodos, JSON.stringify(cloud.todos));
                         if (cloud.expenses) localStorage.setItem(localExpenses, JSON.stringify(cloud.expenses));
+                        if (cloud.images) {
+                            for (var key in cloud.images) {
+                                localStorage.setItem(key, cloud.images[key]);
+                            }
+                        }
                         location.reload();
                     }
                 } catch(e) {}
@@ -2702,10 +2735,17 @@
         setTimeout(saveAllToFirebase, 100);
     };
 
-    // 监听所有 localStorage 变化
+    // 监听所有 localStorage 变化（包括图片）
     window.addEventListener('storage', function(e) {
-        if (e.key === localTodos || e.key === localExpenses) {
+        if (e.key === localTodos || e.key === localExpenses || (e.key && (e.key.endsWith('_img') || e.key.endsWith('_image')))) {
             saveAllToFirebase();
+        }
+    });
+
+    // 监听图片上传 input 的变化
+    document.addEventListener('change', function(e) {
+        if (e.target && (e.target.classList.contains('spot-upload-input') || e.target.classList.contains('food-upload-input'))) {
+            setTimeout(saveAllToFirebase, 500);
         }
     });
 
