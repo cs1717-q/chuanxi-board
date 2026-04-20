@@ -2588,293 +2588,84 @@
 </body>
 </html>
 
-<!-- Firebase 实时协作功能 -->
 <script>
-// ==================== Firebase 实时同步 ====================
+// Firebase 实时同步 - 简化版
 (function() {
-    // Firebase 配置 - 使用你提供的数据库
     var DB_URL = 'https://chuanxi-board-default-rtdb.asia-southeast1.firebasedatabase.app';
-    var USER_ID = 'user_' + Math.random().toString(36).substr(2, 6);
-    var USER_NAME = '成员' + Math.floor(Math.random() * 100);
-    var isOnline = false;
-    var lastSave = 0;
-    var saveQueue = [];
-    
-    // 在线人数
-    var onlineKey = 'online_' + USER_ID;
-    var onlineCount = 0;
-    
-    // 显示在线人数
-    function updateOnlineCount() {
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', DB_URL + '/.json?shallow=true', true);
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                var data = JSON.parse(xhr.responseText) || {};
-                var count = 0;
-                var now = Date.now();
-                for (var key in data) {
-                    if (key.startsWith('online_') && data[key] && (now - data[key]) < 15000) {
-                        count++;
-                    }
-                }
-                onlineCount = Math.max(1, count);
-                var el = document.getElementById('onlineCount');
-                if (el) el.textContent = onlineCount;
-            }
-        };
-        xhr.send();
-    }
-    
-    // 发送心跳
-    function sendHeartbeat() {
-        var xhr = new XMLHttpRequest();
-        xhr.open('PUT', DB_URL + '/' + onlineKey + '.json', true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.send(JSON.stringify(Date.now()));
-    }
-    
-    // 初始化在线人数显示
-    function initOnlineDisplay() {
-        var div = document.createElement('div');
-        div.id = 'onlineIndicator';
-        div.style.cssText = 'position:fixed;top:20px;right:20px;background:white;padding:12px 20px;border-radius:50px;box-shadow:0 4px 20px rgba(0,0,0,0.15);z-index:9999;font-size:14px;display:flex;align-items:center;gap:10px;';
-        div.innerHTML = '<span style="width:12px;height:12px;background:#2ecc71;border-radius:50%;animation:pulse 2s infinite"></span><span><span id="onlineCount">1</span> 人正在查看</span>';
-        document.body.appendChild(div);
-        
-        var style = document.createElement('style');
-        style.textContent = '@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}';
-        document.head.appendChild(style);
-    }
-    
-    // 从 Firebase 加载数据
-    function loadFromFirebase(callback) {
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', DB_URL + '/todos.json', true);
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                try {
-                    var data = JSON.parse(xhr.responseText);
-                    if (data && data.todos) {
-                        lastTimestamp = data.timestamp || 0;
-                        callback(data.todos);
-                    }
-                } catch(e) {
-                    console.log('No data from Firebase yet');
-                }
-            }
-        };
-        xhr.send();
-    }
-    
-    // 保存到 Firebase（带防抖）
-    function saveToFirebase(todos) {
-        var now = Date.now();
-        if (now - lastSave < 1000) {
-            saveQueue = todos;
-            setTimeout(function() {
-                if (saveQueue.length > 0) {
-                    doSave(saveQueue);
-                    saveQueue = [];
-                }
-            }, 1000);
-            return;
-        }
-        doSave(todos);
-        lastSave = now;
-    }
-    
-    function doSave(todos) {
-        var xhr = new XMLHttpRequest();
-        xhr.open('PUT', DB_URL + '/todos.json', true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                isOnline = true;
-                showToast('✓ 已同步到云端');
-            }
-        };
-        xhr.onerror = function() {
-            isOnline = false;
-            showToast('⚠ 保存失败，将重试');
-        };
-        xhr.send(JSON.stringify({todos: todos, timestamp: Date.now()}));
-    }
-    
-    // 监听 Firebase 变化（短轮询）
-    var lastTimestamp = 0;
-    function pollFirebase() {
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', DB_URL + '/todos.json', true);
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                try {
-                    var data = JSON.parse(xhr.responseText);
-                    if (data && data.timestamp && data.timestamp !== lastTimestamp) {
-                        lastTimestamp = data.timestamp;
-                        if (data.todos && typeof window.updateTodosFromCloud === 'function') {
-                            window.updateTodosFromCloud(data.todos);
-                        }
-                    }
-                } catch(e) {}
-            }
-        };
-        xhr.send();
-    }
-    
-    // 显示提示
-    function showToast(msg) {
-        var toast = document.getElementById('firebaseToast') || createToast();
-        toast.textContent = msg;
-        toast.classList.add('show');
-        setTimeout(function() { toast.classList.remove('show'); }, 2500);
-    }
-    
-    function createToast() {
-        var div = document.createElement('div');
-        div.id = 'firebaseToast';
-        div.style.cssText = 'position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#2D5A45;color:white;padding:14px 28px;border-radius:50px;font-size:14px;z-index:99999;opacity:0;transition:opacity 0.3s;box-shadow:0 4px 20px rgba(0,0,0,0.2)';
-        document.body.appendChild(div);
-        return div;
-    }
+    var SYNC_KEY = 'cx_sync_v1';
+    var localKey = 'tripTodos';
+    var versionKey = 'tripTodosVersion';
+    var STORAGE_VERSION = 3;
     
     // 初始化
     function init() {
-        initOnlineDisplay();
-
-        // 加载云端数据
-        loadFromFirebase(function(cloudTodos) {
-            if (cloudTodos && cloudTodos.length > 0) {
-                // 有云端数据，恢复到本地
-                localStorage.setItem('tripTodos', JSON.stringify(cloudTodos));
-                // 覆盖原始的 renderTodos
-                window.renderTodos = function() {
-                    // 从 localStorage 读取最新数据
-                    try {
-                        var STORAGE_VERSION = 1;
-                        var savedVersion = parseInt(localStorage.getItem('tripTodosVersion') || '0');
-                        var defaultTodos = [];
-                        var todos = savedVersion < STORAGE_VERSION ? defaultTodos : JSON.parse(localStorage.getItem('tripTodos') || '[]');
-
-                        var currentCat = 'all';
-                        var currentPerson = 'all';
-                        var showCompleted = false;
-
-                        const pendingTodos = todos.filter(function(t) { return !t.done; });
-                        const doneTodos = todos.filter(function(t) { return t.done; });
-                        var filtered = showCompleted
-                            ? (currentCat === 'all' && currentPerson === 'all'
-                                ? todos
-                                : todos.filter(function(t) { return (currentCat === 'all' || t.cat === currentCat) && (currentPerson === 'all' || t.person === currentPerson); }))
-                            : pendingTodos.filter(function(t) { return (currentCat === 'all' || t.cat === currentCat) && (currentPerson === 'all' || t.person === currentPerson); });
-
-                        var list = document.getElementById('todoList');
-                        if (!list) return;
-
-                        if (filtered.length === 0) {
-                            list.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-light); font-size: 0.85rem;">' + (showCompleted ? '暂无已完成事项' : '暂无待办事项') + '</div>';
-                        } else {
-                            var catIcons = { '出行': '🚗', '住宿': '🏨', '餐饮': '🍽️', '药品': '💊', '行李': '🎒' };
-                            var catColors = { '出行': '#3498DB', '住宿': '#9B59B6', '餐饮': '#E74C3C', '药品': '#E91E63', '行李': '#FF9800' };
-                            var personColors = { '邱明瑶': '#E74C3C', '黎青秀': '#3498DB', '何晓婷': '#2ECC71', '郑荐中': '#F39C12' };
-
-                            list.innerHTML = filtered.map(function(t) {
-                                var realIndex = todos.indexOf(t);
-                                return '<div data-todo-index="' + realIndex + '" style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: ' + (t.done ? 'rgba(46,125,50,0.06)' : 'white') + '; border-radius: 10px; border: 1px solid ' + (t.done ? 'rgba(46,125,50,0.15)' : 'rgba(91,140,90,0.1)') + '; transition: all 0.3s;">' +
-                                    '<div style="flex: 1;">' +
-                                    '<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">' +
-                                    '<span style="background: ' + (catColors[t.cat] || '#666') + '; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem;">' + (catIcons[t.cat] || '📋') + ' ' + (t.cat || '其他') + '</span>' +
-                                    '<span style="background: ' + (personColors[t.person] || '#666') + '; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem;">' + (t.person || '未分配') + '</span>' +
-                                    '</div>' +
-                                    '<div class="todo-text" contenteditable="true" style="outline: none; padding: 4px 0; font-size: 0.92rem; ' + (t.done ? 'text-decoration: line-through; color: var(--text-light);' : '') + '">' + t.text + '</div>' +
-                                    '<div style="font-size: 0.78rem; color: var(--text-light); margin-top: 4px;">验收标准：<span class="todo-criteria" contenteditable="true">' + (t.criteria || '') + '</span></div>' +
-                                    '</div>' +
-                                    '<div style="display: flex; flex-direction: column; gap: 4px; align-items: center; min-width: 60px;">' +
-                                    '<div onclick="toggleTodo(' + realIndex + ')" style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid ' + (t.done ? 'var(--grass)' : '#ddd') + '; background: ' + (t.done ? 'var(--grass)' : 'transparent') + '; cursor: pointer; display: flex; align-items: center; justify-content: center; color: white; font-size: 14px;">' + (t.done ? '✓' : '') + '</div>' +
-                                    '<button onclick="deleteTodo(' + realIndex + ')" style="background: none; border: none; color: #e74c3c; cursor: pointer; font-size: 0.75rem; padding: 4px;" title="删除">✕</button>' +
-                                    '</div></div>';
-                            }).join('');
-
-                            // 添加编辑监听
-                            list.querySelectorAll('.todo-text, .todo-criteria').forEach(function(el) {
-                                el.addEventListener('blur', function() {
-                                    var index = parseInt(this.closest('[data-todo-index]').getAttribute('data-todo-index'));
-                                    var newText = this.closest('.todo-text') ? this.innerText : null;
-                                    var newCriteria = this.closest('.todo-criteria') ? this.innerText : null;
-                                    if (newText !== null) {
-                                        todos[index].text = newText;
-                                    }
-                                    if (newCriteria !== null) {
-                                        todos[index].criteria = newCriteria;
-                                    }
-                                    localStorage.setItem('tripTodos', JSON.stringify(todos));
-                                    saveToFirebase(todos);
-                                });
-                            });
-                        }
-
-                        var doneCount = doneTodos.length;
-                        var totalCount = todos.length;
-                        var progressEl = document.getElementById('todoProgress');
-                        if (progressEl) progressEl.textContent = doneCount + '/' + totalCount;
-                    } catch(e) { console.error('Render error:', e); }
-                };
-
-                // 调用覆盖后的 renderTodos
-                if (typeof window.renderTodos === 'function') {
-                    window.renderTodos();
+        // 先从 Firebase 读取
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', DB_URL + '/todos.json', true);
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                var data = null;
+                try { data = JSON.parse(xhr.responseText); } catch(e) {}
+                if (data && data.todos && data.todos.length > 0) {
+                    // 用 Firebase 数据覆盖本地
+                    localStorage.setItem(localKey, JSON.stringify(data.todos));
+                    localStorage.setItem(versionKey, STORAGE_VERSION);
+                    // 标记已同步
+                    localStorage.setItem(SYNC_KEY, 'synced');
+                    location.reload(); // 重新加载以应用数据
+                } else {
+                    // 没有 Firebase 数据，检查本地是否有同步标记
+                    var synced = localStorage.getItem(SYNC_KEY);
+                    if (synced) {
+                        // 已有同步标记，说明本地有数据，上传到 Firebase
+                        uploadToFirebase();
+                    }
                 }
-                showToast('☁ 已从云端恢复数据');
             }
-        });
-
-        // 发送心跳
-        sendHeartbeat();
-        setInterval(sendHeartbeat, 5000);
-
-        // 更新在线人数
-        updateOnlineCount();
-        setInterval(updateOnlineCount, 8000);
-
-        // 轮询监听变化（缩短到1秒）
-        setInterval(pollFirebase, 1000);
-
-        // 拦截 addTodo 函数
-        var origAddTodo = window.addTodo;
-        window.addTodo = function() {
-            origAddTodo.apply(this, arguments);
-            var todos = JSON.parse(localStorage.getItem('tripTodos') || '[]');
-            saveToFirebase(todos);
         };
-
-        // 拦截 deleteTodo 函数
-        var origDeleteTodo = window.deleteTodo;
-        window.deleteTodo = function() {
-            origDeleteTodo.apply(this, arguments);
-            var todos = JSON.parse(localStorage.getItem('tripTodos') || '[]');
-            saveToFirebase(todos);
+        xhr.onerror = function() {
+            console.log('Firebase 连接失败，使用本地数据');
         };
-
-        // 提供全局更新函数
-        window.updateTodosFromCloud = function(cloudTodos) {
-            localStorage.setItem('tripTodos', JSON.stringify(cloudTodos));
-            if (typeof window.renderTodos === 'function') {
-                window.renderTodos();
-            }
-            showToast('☁ 内容已更新');
-        };
-
-        // 页面离开时清除在线状态
-        window.addEventListener('beforeunload', function() {
-            var xhr = new XMLHttpRequest();
-            xhr.open('DELETE', DB_URL + '/' + onlineKey + '.json', true);
-            xhr.send();
-        });
-
-        showToast('🎉 Firebase 实时同步已开启！');
+        xhr.send();
     }
     
-    // 页面加载完成后初始化
+    // 上传本地数据到 Firebase
+    function uploadToFirebase() {
+        var todos = JSON.parse(localStorage.getItem(localKey) || '[]');
+        var xhr = new XMLHttpRequest();
+        xhr.open('PUT', DB_URL + '/todos.json', true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        var payload = {todos: todos, timestamp: Date.now()};
+        xhr.send(JSON.stringify(payload));
+    }
+    
+    // 覆盖原始的 addTodo
+    var _addTodo = window.addTodo;
+    window.addTodo = function(text, criteria, cat, person) {
+        _addTodo.apply(this, arguments);
+        setTimeout(uploadToFirebase, 100);
+    };
+    
+    // 覆盖原始的 deleteTodo
+    var _deleteTodo = window.deleteTodo;
+    window.deleteTodo = function(index) {
+        _deleteTodo.apply(this, arguments);
+        setTimeout(uploadToFirebase, 100);
+    };
+    
+    // 覆盖原始的 toggleTodo
+    var _toggleTodo = window.toggleTodo;
+    window.toggleTodo = function(index) {
+        _toggleTodo.apply(this, arguments);
+        setTimeout(uploadToFirebase, 100);
+    };
+    
+    // 页面卸载时同步
+    window.addEventListener('beforeunload', function() {
+        uploadToFirebase();
+    });
+    
+    // 启动
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
