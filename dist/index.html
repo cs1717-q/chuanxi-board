@@ -2688,28 +2688,20 @@
                         }
                     }
 
-                    // 如果云端数据与本地不同，则更新（不刷新页面，直接更新内容和DOM）
+                    // 如果云端数据与本地不同，则静默更新 localStorage（不刷新页面）
                     if (localTodosStr !== cloudTodosStr || localExpensesStr !== cloudExpensesStr || imagesChanged) {
-                        var needReload = false;
                         if (cloud.todos) {
                             localStorage.setItem(localTodos, JSON.stringify(cloud.todos));
-                            needReload = true;
                         }
                         if (cloud.expenses) {
                             localStorage.setItem(localExpenses, JSON.stringify(cloud.expenses));
-                            needReload = true;
                         }
                         if (cloud.images) {
                             for (var key in cloud.images) {
-                                if (localStorage.getItem(key) !== cloud.images[key]) {
-                                    localStorage.setItem(key, cloud.images[key]);
-                                    needReload = true;
-                                }
+                                localStorage.setItem(key, cloud.images[key]);
                             }
                         }
-                        if (needReload) {
-                            location.reload();
-                        }
+                        // 不再刷新页面，下次用户手动刷新或重新打开页面时会显示新数据
                     }
                 } catch(e) {}
             }
