@@ -2627,7 +2627,7 @@
         xhr.send(JSON.stringify(data));
     }
 
-    // 从 Firebase 恢复数据
+    // 从 Firebase 恢复数据（静默恢复，不刷新页面）
     function restoreFromFirebase() {
         if (sessionStorage.getItem(RESTORED_KEY) === 'true') return;
 
@@ -2652,7 +2652,7 @@
                             }
                         }
                         localStorage.setItem(SYNC_KEY, 'synced');
-                        location.reload();
+                        // 不再刷新页面，数据已经恢复到 localStorage，下次 renderTodos() 会显示新数据
                     }
                 } catch(e) { console.log('Parse error:', e); }
             }
