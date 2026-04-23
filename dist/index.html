@@ -2760,7 +2760,8 @@
     // 启动
     function start() {
         restoreFromFirebase();
-        setInterval(pollForUpdates, 1000); // 每秒检查
+        // 禁用 pollForUpdates 轮询，它会覆盖用户刚保存的数据
+        // setInterval(pollForUpdates, 1000);
     }
 
     if (document.readyState === 'loading') {
@@ -2777,8 +2778,8 @@
     function startSync() {
         // 首次加载时从 Firebase 恢复
         restoreFromFirebase();
-        // 每1秒轮询检查更新（实时同步）
-        setInterval(pollForUpdates, 1000);
+        // 禁用 pollForUpdates 轮询，它会覆盖用户刚保存的数据
+        // setInterval(pollForUpdates, 1000);
     }
 
     // 启动
