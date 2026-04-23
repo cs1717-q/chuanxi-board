@@ -2619,8 +2619,7 @@
         var data = {
             todos: JSON.parse(todos),
             expenses: JSON.parse(expenses),
-            images: images,
-            timestamp: Date.now()
+            images: images
         };
         var xhr = new XMLHttpRequest();
         xhr.open('PUT', DB_URL + '/alldata.json', true);
@@ -2662,7 +2661,7 @@
         xhr.send();
     }
 
-    // 轮询检查更新
+    // 轮询检查更新（只检查 todos/expenses/images，不比较 timestamp）
     function pollForUpdates() {
         var xhr = new XMLHttpRequest();
         xhr.open('GET', DB_URL + '/alldata.json', true);
@@ -2670,7 +2669,7 @@
             if (xhr.status === 200) {
                 try {
                     var cloud = JSON.parse(xhr.responseText);
-                    if (!cloud || !cloud.timestamp) return;
+                    if (!cloud) return;
 
                     var localTodosStr = localStorage.getItem(localTodos) || '[]';
                     var localExpensesStr = localStorage.getItem(localExpenses) || '[]';
@@ -2709,7 +2708,6 @@
                             }
                         }
                         if (needReload) {
-                            sessionStorage.removeItem(RESTORED_KEY);
                             location.reload();
                         }
                     }
